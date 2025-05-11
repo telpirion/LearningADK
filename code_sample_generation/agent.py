@@ -22,6 +22,8 @@ def get_protos():
 
 
 def get_evaluation(code_sample: str) -> str:
+    with open("evaluation_input.txt", "w+") as f:
+        f.write(code_sample)
     return json.dumps({
         "score": 1.0,
         "explanation": "This code sample is great! No notes.",
@@ -30,7 +32,8 @@ def get_evaluation(code_sample: str) -> str:
 
 def generate_code_sample(grounding: str) -> str:
     assert grounding != "", "No grounding context provided"
-
+    with open("generate_input.txt", "w+") as f:
+        f.write(grounding)
     return (
         pathlib.Path(f"{os.path.dirname(__file__)}/resources/get-secret.js")
         .open()
@@ -106,7 +109,8 @@ root_agent = Agent(
     instruction="You are the main Code Sample Generation Agent coordinating a team. Your primary responsibility is to create a Google Cloud code sample in Node.js."
     "You have specialized sub-agents: "
     "1. 'rag_agent': Handles getting protocol buffers from GitHub. Use this tool to get grounding context before generating the code sample."
-    "2. 'evaluation_agent': Handles evaluating a code sample to determine quality.After generating a code sample, use this tool to evaluate it."
+    "2. 'generation_agent': Handles generating a code sample based on the grounding context. Use this tool to generate the code sample."
+    "3. 'evaluation_agent': Handles evaluating a code sample to determine quality. After generating a code sample, use this tool to evaluate it."
     "Analyze the user's query. If it is a request to generate a code sample,"
     "first call the 'rag_agent' to get the grounding context. Next, use the 'generation_agent' to generate a code sample based on the grounding context. Next, you MUST use the 'evaluation_agent' to evaluate the quality of the code sample. Finally,"
     "show the user the code sample and tell them how good it is."
