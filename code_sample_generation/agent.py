@@ -12,6 +12,9 @@ from google.adk.tools import ToolContext
 from google.adk.runners import Runner
 from google.genai import types  # For creating message Content/Parts
 
+# This is necessary to set the 
+# GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_CLOUD_PROJECT, and GOOGLE_CLOUD_LOCATION
+# variables
 load_dotenv()
 
 MODEL_GEMINI_2_0_FLASH = "gemini-2.0-flash"
@@ -181,7 +184,7 @@ async def call_agent_async(query: str, runner, user_id, session_id):
     print(f"<<< Agent Response: {final_response_text}")
 
 
-async def run(new_query):
+async def run(query):
 
     rag_agent = init_rag_agent()
     evaluation_agent = init_evaluation_agent()
@@ -200,7 +203,7 @@ async def run(new_query):
         app_name="CodeGenerator",
         user_id="CodeGeneratorUser",
         session_id="CodeGeneratorSession",
-        state={"query": new_query},
+        state={"query": query},
     )
     session_service.append_event(
         session, Event(author="user", content={"parts": [{"text": query}]})
@@ -213,17 +216,18 @@ async def run(new_query):
     )
 
     await call_agent_async(
-        query=new_query,
+        query=query,
         runner=runner_agent,
         user_id="CodeGeneratorUser",
         session_id="CodeGeneratorSession",
     )
 
 
-async def main(query):
-    await run(query)
-
-
 if __name__ == "__main__":
-    query = "Write a code sample in Node.js that gets a secret from Google Cloud Secret Manager."
-    asyncio.run(main(query=query))
+    query = textwrap.dedent("""
+    Write a code sample in Node.js that gets a secret from Google Cloud Secret
+    Manager. Use protos from GitHub for grounding. Be sure to evaluate the
+    quality of the code sample before returning a response. Tell me what the
+    evaluation of the code sample is.
+    """)
+    asyncio.run(run(query=query))
