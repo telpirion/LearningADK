@@ -1,119 +1,229 @@
+import asyncio
+from dotenv import load_dotenv
 import json
 import os
 import pathlib
-from typing import Any, Mapping
+import textwrap
 
-from google.adk.agents import Agent
+from google.adk.agents import Agent, SequentialAgent
+from google.adk.events import Event
+from google.adk.sessions import InMemorySessionService
+from google.adk.tools import ToolContext
+from google.adk.runners import Runner
+from google.genai import types  # For creating message Content/Parts
 
+load_dotenv()
 
 MODEL_GEMINI_2_0_FLASH = "gemini-2.0-flash"
-
-root_agent_var_name = "code_sample_generation_agent_team"
-root_agent = None
-runner_root = None
+APP_NAME = "CodeGenerator"
 
 
-def get_protos():
+def get_protos(tool_context: ToolContext) -> str:
+    """Gets protos from 'GitHub' for use as RAG context.
+
+    In a real application, this would download the protos fromGitHub.
+
+    Arguments:
+        tool_context: the context passed into this tool
+
+    Returns:
+        A string containing the entire proto file
+    """
     return (
-        pathlib.Path(f"{os.path.dirname(__file__)}/resources/secretmanager.proto")
+        pathlib.Path(
+            f"{os.path.dirname(__file__)}/resources/secretmanager.proto"
+        )
         .open()
         .read()
     )
 
 
-def get_evaluation(code_sample: str) -> str:
-    with open("evaluation_input.txt", "w+") as f:
-        f.write(code_sample)
-    return json.dumps({
-        "score": 1.0,
-        "explanation": "This code sample is great! No notes.",
-    })
+def get_evaluation(code_sample: str, tool_context: ToolContext):
+    """Evaluates a code sample.
 
+    In a real application, this tool would have a complete set of grading
+    criteria.
 
-def generate_code_sample(grounding: str) -> str:
-    assert grounding != "", "No grounding context provided"
-    with open("generate_input.txt", "w+") as f:
-        f.write(grounding)
-    return (
-        pathlib.Path(f"{os.path.dirname(__file__)}/resources/get-secret.js")
-        .open()
-        .read()
-    )
+    Arguments:
+        code_sample: the code sample to evaluate
+        tool_context: the context passed to this tool
 
+    Returns:
+        An evaluation as a JSON_formatted string
 
-# -- RAG Agent --
-rag_agent = None
-try:
-    rag_agent = Agent(
-        model=MODEL_GEMINI_2_0_FLASH,
-        name="rag_agent",
-        instruction="You are the retrieval-augmented grounding agent. Your ONLY task is to download protocol buffer files from GitHub"
-        "Use the 'say_hello' tool to generate the greeting. "
-        "If the user provides their name, make sure to pass it to the tool. "
-        "Do not engage in any other conversation or tasks.",
-        description="Downloads protocol buffer files from GitHub using the 'get_protos' tool.",
-        tools=[get_protos],
-    )
-    print(
-        f"✅ Agent '{rag_agent.name}' created using model '{rag_agent.model}'."
-    )
-except Exception as e:
-    print(
-        f"❌ Could not create RAG agent. Check API Key ({rag_agent.model}). Error: {e}"
-    )
-
-# --- Evaluation Agent ---
-evaluation_agent = None
-try:
-    evaluation_agent = Agent(
-        model=MODEL_GEMINI_2_0_FLASH,
-        name="evaluation_agent",
-        instruction="You are the Evaluation Agent. Your ONLY task is to decide how good a code sample is."
-        "Use the 'get_evaluation' tool when a code sample has been generated.",
-        description="Evaluates generated code samples using the 'get_evaluation' tool.",  # Crucial for delegation
-        tools=[get_evaluation],
-    )
-    print(
-        f"✅ Agent '{evaluation_agent.name}' created using model"
-        f"'{evaluation_agent.model}'."
-    )
-except Exception as e:
-    print(
-        f"❌ Could not create agent. ({evaluation_agent.model}). Error: {e}"
+    """
+    yield json.dumps(
+        {
+            "score": 1.0,
+            "explanation": "This code sample is great! No notes.",
+        }
     )
 
 
-# --- Evaluation Agent ---
-generation_agent = None
-try:
-    generation_agent = Agent(
-        model=MODEL_GEMINI_2_0_FLASH,
-        name="generation_agent",
-        instruction="You are the Generation Agent. Your ONLY task is to write a code sample in Node.js",
-        description="Generates code samples ",
-        #tools=[generate_code_sample],
+def init_rag_agent() -> Agent:
+    """Instantiates the RAG agent.
+
+    Returns:
+        An Agent object
+    """
+    instruction = """You are the retrieval-augmented grounding agent.
+            Your task is to download protocol buffer files from GitHub
+            Use the 'say_hello' tool to generate the greeting.
+            If the user provides their name, make sure to pass it to the tool.
+            "Do not engage in any other conversation or tasks."""
+    description = (
+        "Downloads protocol buffer files from GitHub using the 'get_protos'"
+        "tool."
     )
-    print(
-        f"✅ Agent '{generation_agent.name}' created using model"
-        f"'{generation_agent.model}'."
+    try:
+        rag_agent = Agent(
+            model=MODEL_GEMINI_2_0_FLASH,
+            name="rag_agent",
+            instruction=textwrap.dedent(instruction),
+            description=textwrap.dedent(description),
+            tools=[get_protos],
+        )
+        print(
+            f"✅ {rag_agent.name}' created using model '{rag_agent.model}'."
+        )
+        return rag_agent
+    except Exception as e:
+        print(f"❌ error: create RAG agent with ({rag_agent.model}): {e}")
+
+
+def init_evaluation_agent():
+    """Instantiates the evaluation agent.
+
+    Returns:
+        An Agent object
+    """
+    instruction = """
+        You are the Evaluation Agent. Your task is to decide how
+        good a code sample is. Use the 'get_evaluation' tool when a code sample
+        has been generated."""
+    description = (
+        "Evaluates generated code samples using the 'get_evaluation' tool."
     )
-except Exception as e:
-    print(
-        f"❌ Could not create agent. ({generation_agent.model}). Error: {e}"
+    try:
+        evaluation_agent = Agent(
+            model=MODEL_GEMINI_2_0_FLASH,
+            name="evaluation_agent",
+            instruction=textwrap.dedent(instruction),
+            description=textwrap.dedent(description),
+            tools=[get_evaluation],
+        )
+        print(
+            f"✅ Agent '{evaluation_agent.name}' created using model"
+            f"'{evaluation_agent.model}'."
+        )
+        return evaluation_agent
+    except Exception as e:
+        print(
+            f"❌ Could not create agent. ({evaluation_agent.model}). Error: {e}"
+        )
+
+
+def init_generation_agent():
+    """Instantiates the generation agent.
+
+    Returns:
+        An Agent object
+    """
+    instruction = "You are the Generation Agent. Your task is to write a code sample in Node.js"
+    description = "Generates code samples in Node.js"
+    try:
+        generation_agent = Agent(
+            model=MODEL_GEMINI_2_0_FLASH,
+            name="generation_agent",
+            instruction=textwrap.dedent(instruction),
+            description=textwrap.dedent(description),
+        )
+        print(
+            f"✅ Agent '{generation_agent.name}' created using model"
+            f"'{generation_agent.model}'."
+        )
+        return generation_agent
+    except Exception as e:
+        print(
+            f"❌ Could not create agent. ({generation_agent.model}). Error: {e}"
+        )
+
+
+async def call_agent_async(query: str, runner, user_id, session_id):
+    """Sends a query to the agent and prints the final response."""
+    print(f"\n>>> User Query: {query}")
+
+    # Prepare the user's message in ADK format
+    content = types.Content(role="user", parts=[types.Part(text=query)])
+
+    final_response_text = "Agent did not produce a final response."  # Default
+
+    # Key Concept: run_async executes the agent logic and yields Events.
+    # We iterate through events to find the final answer.
+    async for event in runner.run_async(
+        user_id=user_id, session_id=session_id, new_message=content
+    ):
+        # You can uncomment the line below to see *all* events during execution
+        print(f"  [Event] Author: {event.author}, Type: {type(event).__name__}, Final: {event.is_final_response()}, Content: {event.content}")
+
+        # Key Concept: is_final_response() marks the concluding message for the turn.
+        if event.is_final_response():
+            if event.content and event.content.parts:
+                # Assuming text response in the first part
+                final_response_text = event.content.parts[0].text
+            elif (
+                event.actions and event.actions.escalate
+            ):  # Handle potential errors/escalations
+                final_response_text = f"Agent escalated: {event.error_message or 'No specific message.'}"
+            # Add more checks here if needed (e.g., specific error codes)
+            break  # Stop processing events once the final response is found
+
+    print(f"<<< Agent Response: {final_response_text}")
+
+
+async def run(new_query):
+
+    rag_agent = init_rag_agent()
+    evaluation_agent = init_evaluation_agent()
+    generation_agent = init_generation_agent()
+
+    description = "Executes a sequence of getting source grounding, writing code samples, and evaluating the code samples."
+    code_pipeline_agent = SequentialAgent(
+        name="CodePipelineAgent",
+        # The agents will run in the order provided
+        sub_agents=[rag_agent, evaluation_agent, generation_agent],
+        description=description,
     )
 
-root_agent = Agent(
-    name="code_sample_generation",
-    model=MODEL_GEMINI_2_0_FLASH,
-    description="The main coordinator agent. Handles code generation requests and delegates RAG and evaluations to specialists",
-    instruction="You are the main Code Sample Generation Agent coordinating a team. Your primary responsibility is to create a Google Cloud code sample in Node.js."
-    "You have specialized sub-agents: "
-    "1. 'rag_agent': Handles getting protocol buffers from GitHub. Use this tool to get grounding context before generating the code sample."
-    "2. 'generation_agent': Handles generating a code sample based on the grounding context. Use this tool to generate the code sample."
-    "3. 'evaluation_agent': Handles evaluating a code sample to determine quality. After generating a code sample, use this tool to evaluate it."
-    "Analyze the user's query. If it is a request to generate a code sample,"
-    "first call the 'rag_agent' to get the grounding context. Next, use the 'generation_agent' to generate a code sample based on the grounding context. Next, you MUST use the 'evaluation_agent' to evaluate the quality of the code sample. Finally,"
-    "show the user the code sample and tell them how good it is."
-    "For anything else, respond appropriately or state you cannot handle it.",
-    sub_agents=[rag_agent, evaluation_agent, generation_agent],
-)
+    session_service = InMemorySessionService()
+    session = session_service.create_session(
+        app_name="CodeGenerator",
+        user_id="CodeGeneratorUser",
+        session_id="CodeGeneratorSession",
+        state={"query": new_query},
+    )
+    session_service.append_event(
+        session, Event(author="user", content={"parts": [{"text": query}]})
+    )
+    # Or use InMemoryRunner
+    runner_agent = Runner(
+        agent=code_pipeline_agent,
+        app_name=APP_NAME,
+        session_service=session_service,
+    )
+
+    await call_agent_async(
+        query=new_query,
+        runner=runner_agent,
+        user_id="CodeGeneratorUser",
+        session_id="CodeGeneratorSession",
+    )
+
+
+async def main(query):
+    await run(query)
+
+
+if __name__ == "__main__":
+    query = "Write a code sample in Node.js that gets a secret from Google Cloud Secret Manager."
+    asyncio.run(main(query=query))
