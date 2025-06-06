@@ -72,15 +72,15 @@ def init_rag_agent() -> Agent:
     instruction = textwrap.dedent("""
             You are the retrieval-augmented grounding agent.
             Your task is to download protocol buffer files from GitHub
-            Use the 'say_hello' tool to generate the greeting.
-            If the user provides their name, make sure to pass it to the tool.
-            "Do not engage in any other conversation or tasks.""")
+            Use the 'get_protos' tool to get the files.
+            If the user provides files to use, make sure to pass it to the
+            tool. Do not engage in any other conversation or tasks.""")
     description = (
         "Downloads protocol buffer files from GitHub using the 'get_protos'"
         "tool."
     )
     try:
-        rag_agent = Agent(
+        agent = Agent(
             model=MODEL_GEMINI_2_0_FLASH,
             name="rag_agent",
             instruction=textwrap.dedent(instruction),
@@ -88,11 +88,11 @@ def init_rag_agent() -> Agent:
             tools=[get_protos],
         )
         print(
-            f"✅ {rag_agent.name}' created using model '{rag_agent.model}'."
+            f"{agent.name}' created using model '{agent.model}'."
         )
-        return rag_agent
+        return agent
     except Exception as e:
-        print(f"❌ error: create RAG agent with ({rag_agent.model}): {e}")
+        print(f"error: create {agent.name} agent with ({agent.model}): {e}")
 
 
 def init_evaluation_agent():
@@ -109,22 +109,17 @@ def init_evaluation_agent():
         "Evaluates generated code samples using the 'get_evaluation' tool."
     )
     try:
-        evaluation_agent = Agent(
+        agent = Agent(
             model=MODEL_GEMINI_2_0_FLASH,
             name="evaluation_agent",
             instruction=textwrap.dedent(instruction),
             description=textwrap.dedent(description),
             tools=[get_evaluation],
         )
-        print(
-            f"✅ Agent '{evaluation_agent.name}' created using model"
-            f"'{evaluation_agent.model}'."
-        )
-        return evaluation_agent
+        print(f"{agent.name}' created using model '{agent.model}'.")
+        return agent
     except Exception as e:
-        print(
-            f"❌ Could not create agent. ({evaluation_agent.model}). Error: {e}"
-        )
+        print(f"error: create {agent.name} agent with ({agent.model}): {e}")
 
 
 def init_generation_agent():
@@ -137,21 +132,16 @@ def init_generation_agent():
                                   to write a code sample in Node.js""")
     description = "Generates code samples in Node.js"
     try:
-        generation_agent = Agent(
+        agent = Agent(
             model=MODEL_GEMINI_2_0_FLASH,
             name="generation_agent",
             instruction=textwrap.dedent(instruction),
             description=textwrap.dedent(description),
         )
-        print(
-            f"✅ Agent '{generation_agent.name}' created using model"
-            f"'{generation_agent.model}'."
-        )
-        return generation_agent
+        print(f"{agent.name}' created using model '{agent.model}'.")
+        return agent
     except Exception as e:
-        print(
-            f"❌ Could not create agent. ({generation_agent.model}). Error: {e}"
-        )
+        print(f"error: create {agent.name} agent with ({agent.model}): {e}")
 
 
 async def call_agent_async(query: str, runner, user_id, session_id):
